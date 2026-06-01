@@ -1,0 +1,129 @@
+# Kubernetes deployment manifest for wealthfolio-connect-self-hosted.
+#
+# This file is an example skeleton — replace the image, the secret refs, the
+# ingress and the namespace before applying. ENV-based config means every
+# field is supplied via Secret/ConfigMap objects, not through a config file.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wealthfolio
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: connect-self-hosted-secrets
+  namespace: wealthfolio
+type: Opaque
+stringData:
+  DATABASE_URL: "postgres://wealth:CHANGE_ME@postgres:5432/wealthfolio?sslmode=disable"
+  JWT_SECRET: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+  CONNECT_AUTH_PUBLISHABLE_KEY: "CHANGE_ME"
+  # The single allow-listed email for the synthetic Supabase OTP login flow.
+  SELF_HOSTED_USER_EMAIL: "me@example.com"
+  # ---- Futu OpenD (TCP) ----
+  FUTU_TRADE_PASSWORD: "CHANGE_ME"
+  # ---- Binance ----
+  BINANCE_API_KEY: "CHANGE_ME"
+  BINANCE_API_SECRET: "CHANGE_ME"
+  # ---- OKX CEX ----
+  OKX_API_KEY: "CHANGE_ME"
+  OKX_API_SECRET: "CHANGE_ME"
+  OKX_PASSPHRASE: "CHANGE_ME"
+  # ---- OKX Web3 / DEX ----
+  OKX_WEB3_API_KEY: "CHANGE_ME"
+  OKX_WEB3_API_SECRET: "CHANGE_ME"
+  OKX_WEB3_PASSPHRASE: "CHANGE_ME"
+  # ---- Bitget ----
+  BITGET_API_KEY: "CHANGE_ME"
+  BITGET_API_SECRET: "CHANGE_ME"
+  BITGET_PASSPHRASE: "CHANGE_ME"
+  # ---- Hyperliquid (read-only wallet) ----
+  HYPERLIQUID_WALLET: "0xCHANGE_ME"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connect-self-hosted-config
+  namespace: wealthfolio
+data:
+  SERVER_PORT: "8080"
+  LOG_LEVEL: "info"
+  CORS_ORIGINS: "https://app.example.com"
+  STATIC_TOKEN_MODE: "false"
+  TOKEN_TTL_SECONDS: "3600"
+  SYNC_INTERVAL_MINUTES: "240"
+  # ---- Futu OpenD (run as a sidecar / DaemonSet on the same network) ----
+  FUTU_HOST: "futu-opend"
+  FUTU_PORT: "11111"
+  FUTU_CONNECTION_ID: "wealthfolio"
+  # ---- IBKR Gateway / TWS (run as a sidecar) ----
+  IBKR_HOST: "ibkr-gateway"
+  IBKR_PORT: "4001"
+  IBKR_CLIENT_ID: "1"
+  IBKR_ACCOUNT_ID: ""
+  # ---- OKX Web3 wallets (JSON list of {address, chains[], label}) ----
+  # Example: [{"address":"0x...","chains":["1","56"],"label":"main"}]
+  DEFI_WALLETS: "[]"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect-self-hosted
+  namespace: wealthfolio
+  labels:
+    app: connect-self-hosted
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: connect-self-hosted
+  template:
+    metadata:
+      labels:
+        app: connect-self-hosted
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/orangeboychen/wealthfolio-connect-self-hosted:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: connect-self-hosted-config
+            - secretRef:
+                name: connect-self-hosted-secrets
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: connect-self-hosted
+  namespace: wealthfolio
+spec:
+  selector:
+    app: connect-self-hosted
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

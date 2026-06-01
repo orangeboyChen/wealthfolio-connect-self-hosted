@@ -1,0 +1,181 @@
+version: "2"
+run:
+  go: "1.22"
+  modules-download-mode: readonly
+  tests: true
+  allow-parallel-runners: true
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - contextcheck
+    - dupl
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exhaustive
+    - goconst
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - makezero
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - nolintlint
+    - prealloc
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  settings:
+    dupl:
+      threshold: 150
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - (io.Closer).Close
+        - (net/http.ResponseWriter).Write
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    goconst:
+      min-len: 3
+      min-occurrences: 4
+    gocritic:
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+        - paramTypeCombine
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+    gosec:
+      excludes:
+        - G104
+        - G115
+      config:
+        G306: "0600"
+    govet:
+      disable:
+        - fieldalignment
+      enable-all: true
+    misspell:
+      locale: US
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+    revive:
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+            - disableStutteringCheck
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+          disabled: true
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    staticcheck:
+      checks:
+        - all
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - bodyclose
+          - contextcheck
+          - dupl
+          - errcheck
+          - goconst
+          - gocritic
+          - gosec
+          - noctx
+          - revive
+          - unparam
+        path: _test\.go
+      - linters:
+          - gochecknoglobals
+          - gochecknoinits
+        path: cmd/.+/main\.go
+      - linters:
+          - unparam
+        path: internal/.+/module\.go
+      - linters:
+          - lll
+        source: '`(json|gorm|yaml|env|validate):'
+    paths:
+      - .*_mock\.go$
+      - .*\.pb\.go$
+      - vendor
+      - third_party
+      - testdata
+      - deploy
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+  fix: false
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - .*_mock\.go$
+      - .*\.pb\.go$
+      - vendor
+      - third_party
+      - testdata
+      - deploy
+      - third_party$
+      - builtin$
+      - examples$

@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+.codebuddy
+*.md
+!API.md
+!AGENTS.md
+!README.md
+cov.out
+db.out
+*.test
+*.out
+**/*.tmp
+.DS_Store
