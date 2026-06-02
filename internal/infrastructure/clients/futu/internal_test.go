@@ -376,8 +376,8 @@ func TestDealToActivity_Success(t *testing.T) {
 	if a.Units != 10 {
 		t.Errorf("expected 10 units, got %v", a.Units)
 	}
-	if a.Symbol.Symbol != "00700.HK" {
-		t.Errorf("expected 00700.HK, got %q", a.Symbol.Symbol)
+	if a.Symbol.Symbol != "0700.HK" {
+		t.Errorf("expected 0700.HK, got %q", a.Symbol.Symbol)
 	}
 	if a.Currency.Code != "HKD" {
 		t.Errorf("expected HKD, got %q", a.Currency.Code)
@@ -393,5 +393,114 @@ func mkPositionInternal(code, name string, qty, price, cost float64, cur pb.Curr
 	return &pb.Position{
 		Code: &code, Name: &name, Qty: &qty, Price: &price,
 		CostPrice: &cost, Currency: &c,
+	}
+}
+
+func TestClassifySymbol_AllShapes(t *testing.T) {
+	type want struct {
+		ok  bool
+		sym string
+		exC string
+		exN string
+		cur string
+	}
+	cases := map[string]want{
+		"":            {ok: false},
+		"00700":       {ok: true, sym: "0700.HK", exC: "HKEX", exN: "Hong Kong", cur: "HKD"},
+		"0700":        {ok: true, sym: "0700.HK", exC: "HKEX", exN: "Hong Kong", cur: "HKD"},
+		"700":         {ok: true, sym: "700.HK", exC: "HKEX", exN: "Hong Kong", cur: "HKD"},
+		"AAPL":        {ok: true, sym: "AAPL", exC: "NASDAQ", exN: "US", cur: "USD"},
+		"BRK.B":       {ok: false}, // dot disqualifies
+		"00700.HK":    {ok: false}, // mixed
+		"aapl":        {ok: false}, // lowercase
+		"HK.WAR12345": {ok: false},
+		"123ABC":      {ok: false},
+	}
+	for in, w := range cases {
+		got, ok := classifySymbol(in)
+		if ok != w.ok {
+			t.Errorf("classifySymbol(%q) ok = %v, want %v", in, ok, w.ok)
+			continue
+		}
+		if !w.ok {
+			continue
+		}
+		if got.symbol != w.sym || got.exchangeCode != w.exC || got.exchangeName != w.exN || got.currency != w.cur {
+			t.Errorf("classifySymbol(%q) = %+v, want sym=%q exC=%q exN=%q cur=%q",
+				in, got, w.sym, w.exC, w.exN, w.cur)
+		}
+	}
+}
+
+func TestBuildPositions_DropsUnclassifiable(t *testing.T) {
+	qty := 10.0
+	price := 1.0
+	cost := 1.0
+	cur := pb.Currency_Currency_HKD
+	// Warrant-like code that is neither pure digits nor pure uppercase letters.
+	warrant := &pb.Position{
+		Code: stringPtr("12345A"), Name: stringPtr("Warrant"),
+		Qty: &qty, Price: &price, CostPrice: &cost, Currency: &cur,
+	}
+	// HK pure-digit code is kept regardless of the account-level mkt.
+	tencent := &pb.Position{
+		Code: stringPtr("00700"), Name: stringPtr("Tencent"),
+		Qty: &qty, Price: &price, CostPrice: &cost, Currency: &cur,
+	}
+	// Even when mkt is US, the HK-shaped code is classified as HKEX/HKD and kept.
+	out := buildPositions([]*pb.Position{warrant, tencent}, pb.TrdMarket_TrdMarket_US)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 position (warrant dropped), got %d", len(out))
+	}
+	if out[0].Symbol.Symbol != "0700.HK" {
+		t.Errorf("expected 0700.HK, got %q", out[0].Symbol.Symbol)
+	}
+	if out[0].Symbol.Exchange.Code != "HKEX" {
+		t.Errorf("expected HKEX, got %q", out[0].Symbol.Exchange.Code)
+	}
+}
+
+func TestDealToActivity_DropsUnclassifiable(t *testing.T) {
+	qty := 10.0
+	price := 1.0
+	side := pb.TrdSide_TrdSide_Buy
+	fillIDEx := "fill-x"
+	code := "12345A" // not classifiable
+	name := "Mixed"
+	f := &pb.OrderFill{
+		Qty: &qty, Price: &price, TrdSide: &side,
+		FillIDEx: &fillIDEx, Code: &code, Name: &name,
+	}
+	if _, ok := dealToActivity(f, "acc1", pb.TrdMarket_TrdMarket_HK); ok {
+		t.Fatal("expected false for unclassifiable symbol")
+	}
+}
+
+func TestDealToActivity_USCodeRegardlessOfMkt(t *testing.T) {
+	// Account-level mkt is HK, but the fill is for an US ticker. The
+	// activity must still be emitted with NASDAQ/USD because Futu's
+	// 综合 account holds positions across markets.
+	qty := 5.0
+	price := 200.0
+	side := pb.TrdSide_TrdSide_Buy
+	fillIDEx := "fill-us"
+	code := "AAPL"
+	name := "Apple"
+	f := &pb.OrderFill{
+		Qty: &qty, Price: &price, TrdSide: &side,
+		FillIDEx: &fillIDEx, Code: &code, Name: &name,
+	}
+	a, ok := dealToActivity(f, "acc1", pb.TrdMarket_TrdMarket_HK)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if a.Symbol.Symbol != "AAPL" {
+		t.Errorf("expected AAPL, got %q", a.Symbol.Symbol)
+	}
+	if a.Symbol.Exchange.Code != "NASDAQ" {
+		t.Errorf("expected NASDAQ, got %q", a.Symbol.Exchange.Code)
+	}
+	if a.Currency.Code != "USD" {
+		t.Errorf("expected USD, got %q", a.Currency.Code)
 	}
 }

@@ -144,7 +144,7 @@ var _ = Describe("Client.Fetch", func() {
 		Expect(snap.Accounts[0].BalanceTotal).To(Equal(123456.0))
 		Expect(snap.Holdings).To(HaveLen(1))
 		Expect(snap.Holdings[0].Positions).To(HaveLen(1))
-		Expect(snap.Holdings[0].Positions[0].Symbol.Symbol).To(Equal("00700.HK"))
+		Expect(snap.Holdings[0].Positions[0].Symbol.Symbol).To(Equal("0700.HK"))
 		Expect(snap.Holdings[0].Balances[0].Currency.Code).To(Equal("HKD"))
 		Expect(snap.Holdings[0].Balances[0].Cash).To(Equal(5000.0))
 	})
@@ -246,7 +246,7 @@ var _ = Describe("Translate (mapping logic)", func() {
 		Expect(acts).To(HaveLen(1))
 		Expect(acts[0].Type).To(BeEquivalentTo("BUY"))
 		Expect(acts[0].SourceRecordID).To(Equal("fill-1"))
-		Expect(acts[0].Symbol.Symbol).To(Equal("00700.HK"))
+		Expect(acts[0].Symbol.Symbol).To(Equal("0700.HK"))
 		Expect(snap.Accounts[0].InitialTxSyncDone).To(BeTrue())
 	})
 

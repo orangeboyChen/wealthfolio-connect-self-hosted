@@ -325,26 +325,35 @@ func buildBalances(f *pb.Funds) []brokerage.Balance {
 	}
 }
 
-func buildPositions(in []*pb.Position, mkt pb.TrdMarket) []brokerage.Position {
+// buildPositions translates Futu positions into domain positions. Futu
+// accounts are 综合 (consolidated): a single account can hold HK, US and
+// other markets simultaneously, so we never trust the account-level
+// TrdMarket to classify a holding. Instead we infer market+exchange+currency
+// purely from the symbol code (see classifySymbol). Anything we can't
+// classify (warrants, option codes, fund codes, indices, …) is dropped.
+func buildPositions(in []*pb.Position, _ pb.TrdMarket) []brokerage.Position {
 	out := make([]brokerage.Position, 0, len(in))
 	for _, p := range in {
 		if p == nil || p.GetQty() == 0 {
 			continue
 		}
+		cls, ok := classifySymbol(p.GetCode())
+		if !ok {
+			continue
+		}
 		cur := futuCurrency(p.GetCurrency())
 		if cur == "" {
-			cur = primaryCurrency(mkt)
+			cur = cls.currency
 		}
-		sym := formatFutuSymbol(p.GetCode(), mkt)
 		out = append(
 			out, brokerage.Position{
 				Symbol: brokerage.Symbol{
-					Symbol:      sym,
-					RawSymbol:   p.GetCode(),
+					Symbol:      cls.symbol,
+					RawSymbol:   cls.symbol,
 					Description: p.GetName(),
 					Name:        p.GetName(),
 					Type:        brokerage.SymbolType{Code: "EQUITY", IsSupported: true, Description: "Equity"},
-					Exchange:    brokerage.Exchange{Code: marketCode(mkt), Name: marketName(mkt)},
+					Exchange:    brokerage.Exchange{Code: cls.exchangeCode, Name: cls.exchangeName},
 					Currency:    brokerage.Currency{Code: cur},
 				},
 				Units:                p.GetQty(),
@@ -378,8 +387,11 @@ func buildActivities(in []*pb.OrderFill, accountID string, mkt pb.TrdMarket) []b
 }
 
 // dealToActivity maps one OpenD fill into a domain Activity. Returns
-// (_, false) when the fill is unusable (zero qty, missing id, unknown side).
-func dealToActivity(f *pb.OrderFill, accountID string, mkt pb.TrdMarket) (brokerage.Activity, bool) {
+// (_, false) when the fill is unusable (zero qty, missing id, unknown side,
+// or the symbol code is not classifiable as HK / US — Futu's consolidated
+// account exposes a single TrdMarket per account but holds positions across
+// markets, so symbol classification drives the per-fill currency/exchange).
+func dealToActivity(f *pb.OrderFill, accountID string, _ pb.TrdMarket) (brokerage.Activity, bool) {
 	if f == nil || f.GetQty() == 0 {
 		return brokerage.Activity{}, false
 	}
@@ -394,9 +406,11 @@ func dealToActivity(f *pb.OrderFill, accountID string, mkt pb.TrdMarket) (broker
 		}
 		sourceID = fmt.Sprintf("%d", f.GetFillID())
 	}
-	cur := primaryCurrency(mkt)
+	cls, ok := classifySymbol(f.GetCode())
+	if !ok {
+		return brokerage.Activity{}, false
+	}
 	ts := dealTimestamp(f)
-	sym := formatFutuSymbol(f.GetCode(), mkt)
 	return brokerage.Activity{
 		ID:        sourceID,
 		AccountID: accountID,
@@ -406,15 +420,15 @@ func dealToActivity(f *pb.OrderFill, accountID string, mkt pb.TrdMarket) (broker
 		Price:     f.GetPrice(),
 		Units:     f.GetQty(),
 		Amount:    f.GetPrice() * f.GetQty(),
-		Currency:  brokerage.Currency{Code: cur},
+		Currency:  brokerage.Currency{Code: cls.currency},
 		Symbol: &brokerage.Symbol{
-			Symbol:      sym,
-			RawSymbol:   f.GetCode(),
+			Symbol:      cls.symbol,
+			RawSymbol:   cls.symbol,
 			Description: f.GetName(),
 			Name:        f.GetName(),
 			Type:        brokerage.SymbolType{Code: "EQUITY", IsSupported: true, Description: "Equity"},
-			Exchange:    brokerage.Exchange{Code: marketCode(mkt), Name: marketName(mkt)},
-			Currency:    brokerage.Currency{Code: cur},
+			Exchange:    brokerage.Exchange{Code: cls.exchangeCode, Name: cls.exchangeName},
+			Currency:    brokerage.Currency{Code: cls.currency},
 		},
 		ProviderType:   "futu",
 		SourceSystem:   "futu",
@@ -534,15 +548,82 @@ func marketCurrency(m pb.TrdMarket) pb.Currency {
 	}
 }
 
-// formatFutuSymbol appends a market suffix to the raw Futu symbol when needed.
-// Hong Kong stocks get ".HK" appended (e.g. "00700" → "00700.HK").
-func formatFutuSymbol(code string, mkt pb.TrdMarket) string {
-	switch mkt {
-	case pb.TrdMarket_TrdMarket_HK, pb.TrdMarket_TrdMarket_HK_Fund:
-		return code + ".HK"
-	default:
-		return code
+// symbolClassification is the result of classifying a raw Futu code into
+// a normalized symbol plus the exchange/currency metadata that follows from
+// it. Classification is purely shape-based on the code string because Futu
+// accounts are 综合 (consolidated): one account holds positions across HK,
+// US and other markets, so the account-level TrdMarket is not authoritative.
+type symbolClassification struct {
+	symbol       string // normalized symbol (e.g. "0700.HK", "AAPL")
+	exchangeCode string // "HKEX" / "NASDAQ"
+	exchangeName string // "Hong Kong" / "US"
+	currency     string // "HKD" / "USD"
+}
+
+// classifySymbol classifies a raw Futu code purely by its shape:
+//
+//   - All ASCII digits → HK equity. 5-digit codes are normalized by
+//     stripping the leading zero and appending ".HK" ("00700" → "0700.HK").
+//     Other digit-only widths are returned as-is with ".HK" appended.
+//   - All ASCII uppercase letters → US equity ("AAPL" → "AAPL").
+//   - Anything else → not classifiable; caller should drop the position.
+//
+// Returns ok=false to signal an unsupported code (warrants, options,
+// indices, fund codes with mixed shape, etc.) so the caller can skip the
+// row entirely.
+func classifySymbol(code string) (symbolClassification, bool) {
+	if code == "" {
+		return symbolClassification{}, false
 	}
+	switch {
+	case isAllDigits(code):
+		sym := code
+		if len(sym) == 5 && sym[0] == '0' {
+			sym = sym[1:]
+		}
+		return symbolClassification{
+			symbol:       sym + ".HK",
+			exchangeCode: "HKEX",
+			exchangeName: "Hong Kong",
+			currency:     currencyHKD,
+		}, true
+	case isAllUpperLetters(code):
+		return symbolClassification{
+			symbol:       code,
+			exchangeCode: "NASDAQ",
+			exchangeName: "US",
+			currency:     "USD",
+		}, true
+	default:
+		return symbolClassification{}, false
+	}
+}
+
+// isAllDigits reports whether s is non-empty and contains only ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isAllUpperLetters reports whether s is non-empty and contains only ASCII
+// uppercase letters A-Z.
+func isAllUpperLetters(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 'A' || s[i] > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func marketCode(m pb.TrdMarket) string {
