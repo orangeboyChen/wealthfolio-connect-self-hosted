@@ -1,14 +1,21 @@
-# wealthfolio-connect-self-hosted
+# Wealthfolio Connect Self-hosted
 
 > A self-hosted companion server for the
-> [Wealthfolio](https://github.com/wealthfolio/wealthfolio) desktop app,
+> [Wealthfolio](https://github.com/wealthfolio/wealthfolio) **web edition**
+> (the self-hosted Docker image that ships out of `apps/server`),
 > for users who can't or won't use a hosted sync service.
+
+> **Scope.** This server targets the **web edition** of Wealthfolio — the
+> Docker image you self-host on your own box, configured via
+> `CONNECT_AUTH_URL` / `CONNECT_AUTH_PUBLISHABLE_KEY` / `CONNECT_API_URL`.
+> It is **not** intended for the Tauri desktop app, which talks to the same
+> HTTP contract but seeds its session through the local OS keyring.
 
 ## 👉 Please use the official Wealthfolio Connect if you can
 
-The [Wealthfolio](https://wealthfolio.app) desktop app is built and
+The [Wealthfolio](https://wealthfolio.app) web edition is built and
 maintained by [@afadil](https://github.com/afadil) and contributors, who
-have given the entire desktop app away for free under AGPL-3.0. The
+have given the entire app away for free under AGPL-3.0. The
 **Wealthfolio Connect** hosted service is how that work gets paid for.
 
 If the official Connect fits your needs — **please subscribe to it**.
@@ -32,10 +39,10 @@ If none of those describe you, close this tab and go to
 ## What this is
 
 A single Go binary that speaks the same HTTP contract the Wealthfolio
-desktop app already uses to talk to its sync backend, so the desktop app
-can point at a server you control instead of the hosted one. Data is
-pulled directly from each broker by this binary — no third-party data
-aggregator sits between you and the exchange:
+web edition already uses to talk to its sync backend, so your self-hosted
+Wealthfolio web instance can point at a server you control instead of the
+hosted Connect. Data is pulled directly from each broker by this binary —
+no third-party data aggregator sits between you and the exchange:
 
 - **Futu Securities** — TCP/protobuf to a local **Futu OpenD** daemon (`hurisheng/go-futu-api`)
 - **Interactive Brokers** — socket protocol to a local **IB Gateway / TWS** (`scmhub/ibapi`)
@@ -66,7 +73,8 @@ respective owners and are used here solely to describe compatibility.
 ```
 ┌──────────────┐                ┌──────────────────────────────┐
 │ Wealthfolio  │  HTTPS / JWT   │  wealthfolio-connect-open    │
-│ Desktop App  │ ──────────────▶│  (this repo, single Go bin)  │
+│ Web edition  │ ──────────────▶│  (this repo, single Go bin)  │
+│ (self-host)  │                │                              │
 └──────────────┘                │                              │
                                 │  ┌────────────────────────────┐  │
                                 │  │ internal/interfaces/ (HTTP)│  │
@@ -128,26 +136,26 @@ go run ./cmd/server
 curl http://localhost:8080/healthz
 ```
 
-### Seed the first refresh token
+### Point the Wealthfolio web edition at this server
 
-Wealthfolio reads its initial `refresh_token` from the local OS keyring; if no
-token is present the desktop app cannot trigger the very first sync. After the
-server is up, run **once** from the same machine that hosts Wealthfolio:
+The Wealthfolio web container reads its Connect endpoints from environment
+variables at runtime (the frontend pulls them through `get_connect_config`).
+Set the following on the **Wealthfolio web** container — not on this one —
+and restart it:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/connect/session \
-  -H "Content-Type: application/json" \
-  -d '{"refreshToken":"seed"}'
+CONNECT_AUTH_URL=https://connect.your-domain.example         # base URL of THIS server
+CONNECT_AUTH_PUBLISHABLE_KEY=your-publishable-key            # must match the value below
+CONNECT_API_URL=https://connect.your-domain.example          # usually the same host
+# Optional: only needed if you wire the OAuth-style callback flow.
+# CONNECT_OAUTH_CALLBACK_URL=https://wealthfolio.your-domain.example/auth/callback
 ```
 
-Notes:
-
-- Any non-empty string works for the `refreshToken` field. The default deployment
-  ships with `STATIC_TOKEN_MODE=true`, so the value is just a marker that
-  flips the local keyring into "sync ready" state.
-- After this seed call, every subsequent refresh is automatic; you do not need
-  to repeat it across restarts (Wealthfolio persists the result).
-- If you wipe the OS keyring (e.g. reinstall Wealthfolio), repeat the seed.
+Then, in the Wealthfolio web UI, sign in to Connect with any email that is on
+this server's `ALLOWED_EMAILS` allow-list and any 6-digit OTP (or `STATIC_OTP`
+if configured). The session JWT and refresh token are persisted by the
+Wealthfolio backend and reused across restarts — there is no separate "seed"
+step, the OS-keyring dance only applies to the Tauri desktop build.
 
 ---
 
@@ -301,17 +309,17 @@ See [API.md](./API.md) for full request/response schemas.
 
 ## Authentication
 
-This server impersonates the subset of Supabase Auth that the Wealthfolio
-desktop app's `wealthfolio-connect` feature talks to. There is **no real
-email provider, no real OTP storage, and no per-user database**: gating is
-done by the `apikey` header (`CONNECT_AUTH_PUBLISHABLE_KEY`) plus the
-`ALLOWED_EMAILS` allow-list. The server is expected to be reachable only
-over a trusted network (VPN, reverse proxy, IP allow-list, ...).
+This server impersonates the subset of Supabase Auth that Wealthfolio's
+`wealthfolio-connect` feature talks to. There is **no real email provider,
+no real OTP storage, and no per-user database**: gating is done by the
+`apikey` header (`CONNECT_AUTH_PUBLISHABLE_KEY`) plus the `ALLOWED_EMAILS`
+allow-list. The server is expected to be reachable only over a trusted
+network (VPN, reverse proxy, IP allow-list, ...).
 
 ### Login flow
 
 ```
-┌─ Wealthfolio frontend ────────────────────┐
+┌─ Wealthfolio web frontend ────────────────┐
 │ 1. POST /auth/v1/otp   { email }          │ ── apikey-gated
 │    server: email ∈ ALLOWED_EMAILS?        │     → 403 if not
 │    server: 200, no email ever sent        │
@@ -326,9 +334,10 @@ over a trusted network (VPN, reverse proxy, IP allow-list, ...).
 │            in UUID format) + refresh tk   │
 │    → returns Supabase-shaped session JSON │
 │                                           │
-│ 4. session is persisted in the OS keyring │
-│    via the existing wealthfolio_connect   │
-│    Tauri commands.                        │
+│ 4. session is persisted by the Wealthfolio│
+│    web backend (encrypted via             │
+│    WF_SECRET_KEY) and reused across       │
+│    restarts.                              │
 └───────────────────────────────────────────┘
 ```
 
@@ -452,5 +461,5 @@ wealthfolio-connect-open/
 
 ## License
 
-**AGPL-3.0-or-later** — same licence the Wealthfolio desktop app uses.
+**AGPL-3.0-or-later** — same licence the upstream Wealthfolio project uses.
 See [LICENSE](./LICENSE).
