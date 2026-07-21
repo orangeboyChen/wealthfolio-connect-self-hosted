@@ -219,10 +219,11 @@ func (c *Client) Fetch(ctx context.Context) (snap domainsync.BrokerSnapshot, err
 		}
 		data = append(
 			data, AccountSnapshot{
-				Account:   a,
-				Funds:     funds,
-				Positions: positions,
-				Deals:     deals,
+				Account:           a,
+				Funds:             funds,
+				Positions:         positions,
+				Deals:             deals,
+				ActivitiesFetched: dErr == nil,
 			},
 		)
 	}
@@ -232,10 +233,11 @@ func (c *Client) Fetch(ctx context.Context) (snap domainsync.BrokerSnapshot, err
 
 // AccountSnapshot bundles all per-account upstream data the translator needs.
 type AccountSnapshot struct {
-	Account   Account
-	Funds     *pb.Funds
-	Positions []*pb.Position
-	Deals     []*pb.OrderFill
+	Account           Account
+	Funds             *pb.Funds
+	Positions         []*pb.Position
+	Deals             []*pb.OrderFill
+	ActivitiesFetched bool
 }
 
 // Translate converts every per-account upstream payload into one BrokerSnapshot
@@ -284,8 +286,11 @@ func Translate(snaps []AccountSnapshot) domainsync.BrokerSnapshot {
 				acc.BalanceCurrency = cur
 			}
 		}
-		if acts := buildActivities(s.Deals, accID, s.Account.TrdMarket); len(acts) > 0 {
+		acts := buildActivities(s.Deals, accID, s.Account.TrdMarket)
+		if len(acts) > 0 {
 			activities[accID] = acts
+		}
+		if s.ActivitiesFetched || len(acts) > 0 {
 			acc.LastTxSync = &now
 			acc.InitialTxSyncDone = true
 		}

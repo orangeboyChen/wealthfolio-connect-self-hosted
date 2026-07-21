@@ -54,6 +54,13 @@ var _ = Describe("Translate", func() {
 		Expect(string(acts[1].Type)).To(Equal("SELL"))
 	})
 
+	It("marks an empty successful trade query as synced", func() {
+		snap := cexcommon.Translate("test", "Test", cexcommon.Snapshot{ActivitiesFetched: true})
+		Expect(snap.Activities).To(BeEmpty())
+		Expect(snap.Accounts[0].InitialTxSyncDone).To(BeTrue())
+		Expect(snap.Accounts[0].LastTxSync).NotTo(BeNil())
+	})
+
 	It("uses stable connection IDs derived from the slug", func() {
 		snap := cexcommon.Translate("okx", "OKX", cexcommon.Snapshot{})
 		Expect(snap.Connection.ID).To(Equal("okx-conn"))

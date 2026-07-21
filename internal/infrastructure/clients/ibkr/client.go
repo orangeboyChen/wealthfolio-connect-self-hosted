@@ -158,7 +158,9 @@ func Translate(raw RawSnapshot) domainsync.BrokerSnapshot {
 			IsPaper:                strings.HasPrefix(accID, "DU"),
 			Status:                 "open",
 			CreatedDate:            now,
+			LastTxSync:             &now,
 			LastHoldingsSync:       &now,
+			InitialTxSyncDone:      true,
 			InitialHoldingsDone:    true,
 		}
 		accounts = append(accounts, acc)
@@ -233,13 +235,6 @@ func Translate(raw RawSnapshot) domainsync.BrokerSnapshot {
 			SourceSystem:   "ibkr",
 			SourceRecordID: e.ExecID,
 		})
-	}
-
-	// Mark accounts that have activities as InitialTxSyncDone.
-	for i := range accounts {
-		if _, ok := activities[accounts[i].ID]; ok {
-			accounts[i].InitialTxSyncDone = true
-		}
 	}
 
 	return domainsync.BrokerSnapshot{

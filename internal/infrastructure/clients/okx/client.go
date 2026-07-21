@@ -129,6 +129,7 @@ func (c *CEXClient) Fetch(ctx context.Context) (domainsync.BrokerSnapshot, error
 	trades, err := c.getFillsHistory(ctx)
 	if err == nil {
 		snap.Trades = trades
+		snap.ActivitiesFetched = true
 	}
 
 	return cexcommon.Translate("okx", "OKX", snap), nil

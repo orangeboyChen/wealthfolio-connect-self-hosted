@@ -39,8 +39,9 @@ type Trade struct {
 
 // Snapshot bundles balances + optional trades for one CEX.
 type Snapshot struct {
-	Balances []Balance
-	Trades   []Trade
+	Balances          []Balance
+	Trades            []Trade
+	ActivitiesFetched bool
 }
 
 // Translate folds a CEX snapshot into a BrokerSnapshot. The resulting
@@ -69,7 +70,11 @@ func Translate(slug, displayName string, s Snapshot) domainsync.BrokerSnapshot {
 		Status:                 "open",
 		CreatedDate:            now,
 		LastHoldingsSync:       &now,
+		InitialTxSyncDone:      s.ActivitiesFetched,
 		InitialHoldingsDone:    true,
+	}
+	if s.ActivitiesFetched {
+		account.LastTxSync = &now
 	}
 
 	connection := brokerage.Connection{

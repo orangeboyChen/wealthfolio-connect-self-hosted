@@ -250,6 +250,22 @@ var _ = Describe("Translate (mapping logic)", func() {
 		Expect(snap.Accounts[0].InitialTxSyncDone).To(BeTrue())
 	})
 
+	It("marks an empty successful HistoryDeals response as synced", func() {
+		acc := futu.Account{AccID: 1, TrdEnv: pb.TrdEnv_TrdEnv_Real, TrdMarket: pb.TrdMarket_TrdMarket_HK}
+		sess := &fakeSession{
+			accs: []futu.Account{acc},
+			fundsByID: map[uint64]*pb.Funds{
+				1: mkFunds(10000, 10000, pb.Currency_Currency_HKD),
+			},
+		}
+		c := futu.New("h", 1, "", "", nil, fakeDialer{sess: sess})
+		snap, err := c.Fetch(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(snap.Activities).To(BeEmpty())
+		Expect(snap.Accounts[0].InitialTxSyncDone).To(BeTrue())
+		Expect(snap.Accounts[0].LastTxSync).NotTo(BeNil())
+	})
+
 	It("tolerates HistoryDeals failures by yielding zero activities", func() {
 		acc := futu.Account{AccID: 1, TrdEnv: pb.TrdEnv_TrdEnv_Real, TrdMarket: pb.TrdMarket_TrdMarket_HK}
 		sess := &fakeSession{

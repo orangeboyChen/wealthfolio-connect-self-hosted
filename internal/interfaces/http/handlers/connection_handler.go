@@ -55,6 +55,10 @@ type connectionsResponse struct {
 }
 
 func toConnectionDTO(c brokerage.Connection) connectionDTO {
+	status := string(c.Status)
+	if c.Status == brokerage.ConnectionActive {
+		status = "connected"
+	}
 	return connectionDTO{
 		ID:              c.ID,
 		AuthorizationID: c.AuthorizationID,
@@ -71,7 +75,7 @@ func toConnectionDTO(c brokerage.Connection) connectionDTO {
 		Disabled:  c.Disabled,
 		UpdatedAt: c.UpdatedAt,
 		Name:      c.Name,
-		Status:    string(c.Status),
+		Status:    status,
 	}
 }
 

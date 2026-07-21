@@ -74,6 +74,8 @@ var _ = Describe("Client.Fetch", func() {
 		Expect(snap.Holdings[0].Positions).To(HaveLen(1))
 		Expect(snap.Holdings[0].Positions[0].Symbol.Symbol).To(Equal("AAPL"))
 		Expect(snap.Holdings[0].Balances[0].Cash).To(Equal(25000.0))
+		Expect(snap.Accounts[0].InitialTxSyncDone).To(BeTrue())
+		Expect(snap.Accounts[0].LastTxSync).NotTo(BeNil())
 	})
 
 	It("flags paper accounts (DU prefix)", func() {

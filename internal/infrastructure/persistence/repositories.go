@@ -122,6 +122,9 @@ func (r *accountRepo) Upsert(ctx context.Context, a brokerage.Account) error {
 	if err != nil {
 		return fmt.Errorf("account upsert: %w", err)
 	}
+	if err := r.UpdateSyncStatus(ctx, a.ID, a.LastTxSync, a.LastHoldingsSync); err != nil {
+		return fmt.Errorf("account upsert sync status: %w", err)
+	}
 	return nil
 }
 

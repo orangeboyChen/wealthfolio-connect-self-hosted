@@ -69,7 +69,7 @@ var _ = Describe("ConnectionHandler.List", func() {
 		Expect(body).To(ContainSubstring(`"brokerage_slug":"futu"`))
 		Expect(body).To(ContainSubstring(`"slug":"futu"`))
 		Expect(body).To(ContainSubstring(`"aws_s3_logo_url":"https://example.com/futu.png"`))
-		Expect(body).To(ContainSubstring(`"status":"active"`))
+		Expect(body).To(ContainSubstring(`"status":"connected"`))
 	})
 
 	It("returns 500 on repository error", func() {

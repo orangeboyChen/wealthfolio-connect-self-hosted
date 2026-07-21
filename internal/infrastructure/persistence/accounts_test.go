@@ -95,6 +95,15 @@ var _ = Describe("AccountRepository", func() {
 		Expect(mock.ExpectationsWereMet()).To(Succeed())
 	})
 
+	It("persists sync completion when upserting an existing account", func() {
+		mock.ExpectExec(rx(`INSERT INTO "accounts"`)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(rx(`UPDATE "accounts" SET`)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		Expect(repo.Upsert(ctx, brokerage.Account{ID: "id", LastTxSync: &now})).To(Succeed())
+		Expect(mock.ExpectationsWereMet()).To(Succeed())
+	})
+
 	It("propagates upsert errors", func() {
 		mock.ExpectExec(rx(`INSERT INTO "accounts"`)).WillReturnError(errors.New("dup"))
 		err := repo.Upsert(ctx, brokerage.Account{ID: "id", CreatedDate: time.Now()})
