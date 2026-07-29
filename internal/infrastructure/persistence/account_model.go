@@ -30,6 +30,7 @@ type AccountPO struct {
 	FirstTxDate            *time.Time `gorm:"column:first_tx_date"`
 	InitialTxSyncDone      bool       `gorm:"column:initial_tx_sync_done;not null;default:false"`
 	InitialHoldingsDone    bool       `gorm:"column:initial_holdings_done;not null;default:false"`
+	ActivitySyncOffset     int        `gorm:"column:activity_sync_offset;not null;default:0"`
 	OwnerUserID            string     `gorm:"column:owner_user_id;type:text;not null;default:''"`
 	OwnerFullName          string     `gorm:"column:owner_full_name;type:text;not null;default:''"`
 	OwnerEmail             string     `gorm:"column:owner_email;type:text;not null;default:''"`
@@ -61,6 +62,7 @@ func (p AccountPO) ToDomain() brokerage.Account {
 		FirstTxDate:            p.FirstTxDate,
 		InitialTxSyncDone:      p.InitialTxSyncDone,
 		InitialHoldingsDone:    p.InitialHoldingsDone,
+		ActivitySyncOffset:     p.ActivitySyncOffset,
 		OwnerUserID:            p.OwnerUserID,
 		OwnerFullName:          p.OwnerFullName,
 		OwnerEmail:             p.OwnerEmail,
@@ -96,6 +98,7 @@ func accountFromDomain(a brokerage.Account) AccountPO {
 		FirstTxDate:            a.FirstTxDate,
 		InitialTxSyncDone:      a.InitialTxSyncDone,
 		InitialHoldingsDone:    a.InitialHoldingsDone,
+		ActivitySyncOffset:     a.ActivitySyncOffset,
 		OwnerUserID:            a.OwnerUserID,
 		OwnerFullName:          a.OwnerFullName,
 		OwnerEmail:             a.OwnerEmail,

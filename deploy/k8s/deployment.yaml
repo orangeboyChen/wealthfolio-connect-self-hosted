@@ -39,6 +39,11 @@ stringData:
   BITGET_PASSPHRASE: "CHANGE_ME"
   # ---- Hyperliquid (read-only wallet) ----
   HYPERLIQUID_WALLET: "0xCHANGE_ME"
+  # ---- SnapTrade (leave blank while SNAPTRADE_ENABLED=false) ----
+  SNAPTRADE_CLIENT_ID: ""
+  SNAPTRADE_CONSUMER_KEY: ""
+  SNAPTRADE_USER_ID: ""
+  SNAPTRADE_USER_SECRET: ""
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -53,14 +58,37 @@ data:
   TOKEN_TTL_SECONDS: "3600"
   SYNC_INTERVAL_MINUTES: "240"
   # ---- Futu OpenD (run as a sidecar / DaemonSet on the same network) ----
+  FUTU_ENABLED: "false"
   FUTU_HOST: "futu-opend"
   FUTU_PORT: "11111"
   FUTU_CONNECTION_ID: "wealthfolio"
   # ---- IBKR Gateway / TWS (run as a sidecar) ----
+  IBKR_ENABLED: "false"
   IBKR_HOST: "ibkr-gateway"
   IBKR_PORT: "4001"
   IBKR_CLIENT_ID: "1"
   IBKR_ACCOUNT_ID: ""
+  # ---- SnapTrade IBKR history importer ----
+  SNAPTRADE_ENABLED: "false"
+  SNAPTRADE_AUTH_MODE: "auto"
+  SNAPTRADE_PACKAGE: "personal"
+  SNAPTRADE_BASE_URL: "https://api.snaptrade.com"
+  SNAPTRADE_ACCOUNT_IDS: ""
+  SNAPTRADE_HISTORY_START_DATE: "01.01.2022"
+  SNAPTRADE_SYNC_INTERVAL_MINUTES: "240"
+  SNAPTRADE_REQUEST_INTERVAL_SECONDS: "60"
+  SNAPTRADE_REQUESTS_PER_MINUTE: "0"
+  SNAPTRADE_ACCOUNT_REQUESTS_PER_MINUTE: "0"
+  SNAPTRADE_RATE_LIMIT_SAFETY_PERCENT: "80"
+  SNAPTRADE_ACTIVITY_PAGE_SIZE: "1000"
+  SNAPTRADE_MAX_RETRIES: "5"
+  SNAPTRADE_RETRY_BASE_SECONDS: "5"
+  SNAPTRADE_RETRY_MAX_SECONDS: "300"
+  SNAPTRADE_INCREMENTAL_OVERLAP_DAYS: "7"
+  SNAPTRADE_REQUEST_TIMEOUT_SECONDS: "30"
+  SNAPTRADE_ALLOW_MANUAL_REFRESH: "false"
+  SNAPTRADE_ALLOW_TRANSACTION_SYNC: "false"
+  SNAPTRADE_MANUAL_REFRESH_COOLDOWN_HOURS: "24"
   # ---- OKX Web3 wallets (JSON list of {address, chains[], label}) ----
   # Example: [{"address":"0x...","chains":["1","56"],"label":"main"}]
   DEFI_WALLETS: "[]"

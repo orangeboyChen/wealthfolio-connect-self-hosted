@@ -131,6 +131,19 @@ var _ = Describe("AccountRepository", func() {
 		Expect(err).To(MatchError(ContainSubstring("nope")))
 	})
 
+	It("persists an activity checkpoint and completion independently", func() {
+		first := now.Add(-24 * time.Hour)
+		mock.ExpectExec(rx(`UPDATE "accounts" SET`)).WillReturnResult(sqlmock.NewResult(0, 1))
+		Expect(repo.UpdateActivitySyncProgress(ctx, "acc", repository.ActivitySyncProgress{
+			NextOffset: 1000, FirstTransactionDate: &first,
+		})).To(Succeed())
+		mock.ExpectExec(rx(`UPDATE "accounts" SET`)).WillReturnResult(sqlmock.NewResult(0, 1))
+		Expect(repo.UpdateActivitySyncProgress(ctx, "acc", repository.ActivitySyncProgress{
+			NextOffset: 2000, CompletedAt: &now,
+		})).To(Succeed())
+		Expect(mock.ExpectationsWereMet()).To(Succeed())
+	})
+
 	It("SetSyncEnabled updates the row", func() {
 		mock.ExpectExec(rx(`UPDATE "accounts" SET "sync_enabled"`)).
 			WillReturnResult(sqlmock.NewResult(0, 1))

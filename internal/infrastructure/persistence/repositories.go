@@ -115,7 +115,7 @@ func (r *accountRepo) Upsert(ctx context.Context, a brokerage.Account) error {
 		DoUpdates: clause.AssignmentColumns([]string{
 			"name", "account_number", "type", "raw_type", "currency",
 			"balance_total", "balance_currency", "brokerage_authorization",
-			"institution_name", "sync_enabled", "shared_with_household",
+			"institution_name", "shared_with_household",
 			"is_paper", "status", "owner_user_id", "owner_full_name", "owner_email",
 		}),
 	}).Create(&po).Error
@@ -124,6 +124,32 @@ func (r *accountRepo) Upsert(ctx context.Context, a brokerage.Account) error {
 	}
 	if err := r.UpdateSyncStatus(ctx, a.ID, a.LastTxSync, a.LastHoldingsSync); err != nil {
 		return fmt.Errorf("account upsert sync status: %w", err)
+	}
+	return nil
+}
+
+// UpdateActivitySyncProgress stores a page checkpoint or atomically marks a
+// completed history pass. Reprocessing a page after a failed checkpoint is
+// safe because activities are upserted by source identity.
+func (r *accountRepo) UpdateActivitySyncProgress(ctx context.Context, accountID string, progress repository.ActivitySyncProgress) error {
+	updates := map[string]any{"activity_sync_offset": progress.NextOffset}
+	if progress.FirstTransactionDate != nil {
+		updates["first_tx_date"] = gorm.Expr(
+			"CASE WHEN first_tx_date IS NULL OR first_tx_date > ? THEN ? ELSE first_tx_date END",
+			*progress.FirstTransactionDate, *progress.FirstTransactionDate,
+		)
+	}
+	if progress.CompletedAt != nil {
+		updates["last_tx_sync"] = *progress.CompletedAt
+		updates["initial_tx_sync_done"] = true
+		updates["activity_sync_offset"] = 0
+	}
+	res := r.db.WithContext(ctx).Model(&AccountPO{}).Where("id = ?", accountID).Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("account activity sync progress: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return repository.ErrNotFound
 	}
 	return nil
 }

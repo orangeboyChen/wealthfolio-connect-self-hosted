@@ -28,9 +28,19 @@ type AccountRepository interface {
 	Get(ctx context.Context, id string) (brokerage.Account, error)
 	Upsert(ctx context.Context, acc brokerage.Account) error
 	UpdateSyncStatus(ctx context.Context, accountID string, txSync, holdingsSync *time.Time) error
+	UpdateActivitySyncProgress(ctx context.Context, accountID string, progress ActivitySyncProgress) error
 	// SetSyncEnabled flips the sync_enabled flag for one account. Returns
 	// ErrNotFound when the account does not exist.
 	SetSyncEnabled(ctx context.Context, accountID string, enabled bool) error
+}
+
+// ActivitySyncProgress is the durable checkpoint for a paged history import.
+// CompletedAt is nil for an intermediate page and non-nil only after the final
+// page has been persisted successfully.
+type ActivitySyncProgress struct {
+	NextOffset           int
+	FirstTransactionDate *time.Time
+	CompletedAt          *time.Time
 }
 
 // ActivityFilter narrows down a paginated activity query.

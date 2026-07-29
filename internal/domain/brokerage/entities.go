@@ -116,6 +116,7 @@ type Account struct {
 	FirstTxDate            *time.Time
 	InitialTxSyncDone      bool
 	InitialHoldingsDone    bool
+	ActivitySyncOffset     int
 	OwnerUserID            string
 	OwnerFullName          string
 	OwnerEmail             string
@@ -142,6 +143,8 @@ const (
 	ActivityOptionSell       ActivityType = "OPTION_SELL"
 	ActivityOptionExpiry     ActivityType = "OPTION_EXPIRY"
 	ActivityOptionAssignment ActivityType = "OPTION_ASSIGNMENT"
+	ActivityOptionExercise   ActivityType = "OPTION_EXERCISE"
+	ActivityUnknown          ActivityType = "UNKNOWN"
 )
 
 // Activity is one line of trade history.
@@ -149,6 +152,7 @@ type Activity struct {
 	ID                  string
 	AccountID           string
 	Symbol              *Symbol
+	CurrencySymbol      *Symbol
 	OptionSymbol        *OptionSymbol
 	Price               float64
 	Units               float64
@@ -169,6 +173,7 @@ type Activity struct {
 	SourceSystem        string
 	SourceRecordID      string
 	SourceGroupID       string
+	SourceFingerprint   string
 	NeedsReview         bool
 }
 

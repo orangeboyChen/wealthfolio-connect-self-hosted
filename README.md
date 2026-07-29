@@ -41,11 +41,13 @@ If none of those describe you, close this tab and go to
 A single Go binary that speaks the same HTTP contract the Wealthfolio
 web edition already uses to talk to its sync backend, so your self-hosted
 Wealthfolio web instance can point at a server you control instead of the
-hosted Connect. Data is pulled directly from each broker by this binary —
-no third-party data aggregator sits between you and the exchange:
+hosted Connect. Most integrations pull directly from the broker; the optional
+SnapTrade importer reads accounts that the operator has already connected to
+SnapTrade:
 
 - **Futu Securities** — TCP/protobuf to a local **Futu OpenD** daemon (`hurisheng/go-futu-api`)
 - **Interactive Brokers** — socket protocol to a local **IB Gateway / TWS** (`scmhub/ibapi`)
+- **Interactive Brokers through SnapTrade** — signed, read-only REST import of existing SnapTrade connections
 - **Binance Spot** — REST API (`adshao/go-binance/v2`)
 - **OKX CEX** — signed v5 REST API (HMAC-SHA256)
 - **OKX Web3 / DEX** — signed v5 REST API for on-chain wallet aggregation
@@ -194,7 +196,8 @@ your OpenD trading password.
 
 | Name                 | Default      | Description                                                                |
 | -------------------- | ------------ | -------------------------------------------------------------------------- |
-| `FUTU_HOST`          | `127.0.0.1`  | OpenD host. Empty disables Futu.                                           |
+| `FUTU_ENABLED`       | `false`      | Explicitly enables the direct Futu integration.                            |
+| `FUTU_HOST`          | `127.0.0.1`  | OpenD host.                                                                |
 | `FUTU_PORT`          | `11111`      | OpenD TCP port.                                                            |
 | `FUTU_TRADE_PASSWORD`| —            | The trading password ("交易密码 / 交易密码 MD5") configured in OpenD.       |
 | `FUTU_CONNECTION_ID` | `wealthfolio`| Logical connection identifier surfaced in the snapshot.                    |
@@ -206,7 +209,8 @@ enabled. Allow this server's IP in the gateway's *Trusted IPs* list.
 
 | Name              | Default     | Description                                                            |
 | ----------------- | ----------- | ---------------------------------------------------------------------- |
-| `IBKR_HOST`       | `127.0.0.1` | IB Gateway / TWS host. Empty disables IBKR.                            |
+| `IBKR_ENABLED`    | `false`     | Explicitly enables direct IB Gateway/TWS synchronization.              |
+| `IBKR_HOST`       | `127.0.0.1` | IB Gateway / TWS host.                                                  |
 | `IBKR_PORT`       | `4001`      | `4001` for live IB Gateway, `4002` paper, `7496` TWS, `7497` TWS paper.|
 | `IBKR_CLIENT_ID`  | `1`         | Any unique integer — must not clash with other API clients.            |
 | `IBKR_ACCOUNT_ID` | —           | Optional account filter (e.g. `U1234567`); empty pulls every account.  |
@@ -228,6 +232,109 @@ enabled. Allow this server's IP in the gateway's *Trusted IPs* list.
 > - If 2FA prompts become disruptive, evaluate IBKR's *Read-only login*
 >   option, which suppresses the second factor for market-data + portfolio
 >   queries.
+
+### Interactive Brokers through SnapTrade
+
+This optional integration imports IBKR accounts that are **already connected
+to SnapTrade**. It does not register SnapTrade users, create brokerage
+connections, generate Connection Portal URLs, or place orders. Personal users
+connect IBKR in the SnapTrade Dashboard; Commercial operators use SnapTrade's
+external Connection Portal workflow before enabling this importer.
+
+Only connections identified as Interactive Brokers are selected. SnapTrade
+account UUIDs and authorization UUIDs are namespaced locally, so they cannot
+collide with the direct IB Gateway client. You should nevertheless normally
+enable only one source for the same real IBKR account; enabling both creates
+two logical Wealthfolio accounts containing overlapping economic data.
+
+| Name | Default | Description |
+| ---- | ------- | ----------- |
+| `SNAPTRADE_ENABLED` | `false` | Enables the importer. Missing credentials are ignored while disabled. |
+| `SNAPTRADE_AUTH_MODE` | `auto` | `auto`, `personal`, or `commercial`. Auto selects Commercial only when both user credentials exist. |
+| `SNAPTRADE_PACKAGE` | `personal` | Safety profile: `personal`, `free`, `payg_realtime`, `payg_daily`, or `custom`. |
+| `SNAPTRADE_CLIENT_ID` | — | SnapTrade API client ID; required when enabled. |
+| `SNAPTRADE_CONSUMER_KEY` | — | SnapTrade signing secret; required when enabled. |
+| `SNAPTRADE_USER_ID` | — | Commercial SnapTrade user ID. Omitted for Personal requests. |
+| `SNAPTRADE_USER_SECRET` | — | Commercial SnapTrade user secret. Omitted for Personal requests. |
+| `SNAPTRADE_BASE_URL` | `https://api.snaptrade.com` | API origin. HTTP is rejected except for loopback tests. |
+| `SNAPTRADE_ACCOUNT_IDS` | — | Optional comma-separated SnapTrade account UUID allow-list; empty selects every discovered IBKR account. |
+| `SNAPTRADE_HISTORY_START_DATE` | `01.01.2022` | Inclusive history start, in `DD.MM.YYYY` or `YYYY-MM-DD` form. |
+| `SNAPTRADE_SYNC_INTERVAL_MINUTES` | `240` | Per-client cadence; values below 60 are rejected. |
+| `SNAPTRADE_REQUEST_INTERVAL_SECONDS` | `60` | Global minimum spacing between outgoing requests. |
+| `SNAPTRADE_REQUESTS_PER_MINUTE` | `0` | Optional global override; `0` uses public/profile defaults and response headers. |
+| `SNAPTRADE_ACCOUNT_REQUESTS_PER_MINUTE` | `0` | Optional per-account override; `0` uses the Personal default where applicable. |
+| `SNAPTRADE_RATE_LIMIT_SAFETY_PERCENT` | `80` | Consume no more than approximately this percentage of an applicable quota. |
+| `SNAPTRADE_ACTIVITY_PAGE_SIZE` | `1000` | History page size, from 1 through SnapTrade's maximum of 1000. |
+| `SNAPTRADE_MAX_RETRIES` | `5` | Maximum retries after the first request. |
+| `SNAPTRADE_RETRY_BASE_SECONDS` | `5` | Initial transient-error backoff. |
+| `SNAPTRADE_RETRY_MAX_SECONDS` | `300` | Backoff ceiling. |
+| `SNAPTRADE_INCREMENTAL_OVERLAP_DAYS` | `7` | Days refetched before the last completed local import. |
+| `SNAPTRADE_REQUEST_TIMEOUT_SECONDS` | `30` | Per-request HTTP timeout. |
+| `SNAPTRADE_ALLOW_MANUAL_REFRESH` | `false` | Explicitly permits the potentially billable connection-refresh endpoint. |
+| `SNAPTRADE_ALLOW_TRANSACTION_SYNC` | `false` | Explicitly permits SnapTrade's transaction-sync endpoint. |
+| `SNAPTRADE_MANUAL_REFRESH_COOLDOWN_HOURS` | `24` | In-process per-authorization cooldown for either explicit refresh; minimum 1 hour. |
+
+Personal example:
+
+```env
+SNAPTRADE_ENABLED=true
+SNAPTRADE_AUTH_MODE=personal
+SNAPTRADE_PACKAGE=personal
+SNAPTRADE_CLIENT_ID=replace-me
+SNAPTRADE_CONSUMER_KEY=replace-me
+SNAPTRADE_HISTORY_START_DATE=01.01.2022
+SNAPTRADE_SYNC_INTERVAL_MINUTES=240
+SNAPTRADE_REQUEST_INTERVAL_SECONDS=60
+```
+
+Commercial example:
+
+```env
+SNAPTRADE_ENABLED=true
+SNAPTRADE_AUTH_MODE=commercial
+SNAPTRADE_PACKAGE=free
+SNAPTRADE_CLIENT_ID=replace-me
+SNAPTRADE_CONSUMER_KEY=replace-me
+SNAPTRADE_USER_ID=replace-me
+SNAPTRADE_USER_SECRET=replace-me
+SNAPTRADE_HISTORY_START_DATE=01.01.2022
+SNAPTRADE_SYNC_INTERVAL_MINUTES=240
+SNAPTRADE_REQUEST_INTERVAL_SECONDS=60
+```
+
+Both modes use the current signed-request protocol. Personal requests omit
+`userId` and `userSecret`; Commercial requests include them in the signed
+query. The default local limiter permits only about one request per minute,
+even though the public customer default is 250/minute. Personal also applies
+the public 10 requests/minute/account default. Explicit limits, package
+defaults, the 80% reserve, and response headers are combined using the
+strictest active rule. `429` responses honor `Retry-After`, global/account
+reset headers, and a delay reported in the JSON detail; retryable failures use
+bounded exponential backoff with jitter and context-aware waits.
+
+Package names are conservative profiles, not permission to ignore API
+headers. `personal` enables the public account-level limiter; `free`,
+`payg_realtime`, and `payg_daily` default to Commercial customer-level
+limiting, and the importer does not enforce Free's connection-count product
+limit. `payg_daily` never triggers a manual refresh unless explicitly enabled.
+`custom` accepts explicit quotas and learned headers, but otherwise falls back
+to the same public customer default plus the conservative request interval.
+
+At startup the shared scheduler launches every broker independently, so a
+long throttled SnapTrade import does not delay direct IBKR or exchange clients.
+For each SnapTrade account, activities are read from the non-deprecated
+account-scoped history endpoint and committed one page at a time. The initial
+pass starts at `SNAPTRADE_HISTORY_START_DATE`; a durable offset resumes a
+partially completed pass. Later passes refetch the configured overlap and use
+upserts. SnapTrade activity ID is the primary identity, while a deterministic
+per-account SHA-256 fingerprint detects the rare case where SnapTrade
+reprocesses a record under a new ID. Historical rows are never deleted merely
+because a later response omits them.
+
+The importer can promise only all activities that **SnapTrade makes available
+from the configured start date**. SnapTrade may not expose the account's entire
+IBKR lifetime. Manual holdings refresh and transaction sync are disabled by
+default because they may be asynchronous or billable, depending on the plan.
 
 ### Binance Spot (REST)
 

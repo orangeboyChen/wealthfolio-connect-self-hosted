@@ -65,21 +65,73 @@ func (r *activityRepo) UpsertBatch(ctx context.Context, accountID string, items 
 	if len(items) == 0 {
 		return nil
 	}
-	pos := make([]ActivityPO, 0, len(items))
+	fingerprints := make([]string, 0, len(items))
 	for _, it := range items {
-		pos = append(pos, activityFromDomain(accountID, it))
+		if it.SourceFingerprint != "" {
+			fingerprints = append(fingerprints, it.SourceFingerprint)
+		}
+	}
+	identityByFingerprint := make(map[string]string, len(fingerprints))
+	if len(fingerprints) > 0 {
+		var existing []ActivityPO
+		err := r.db.WithContext(ctx).
+			Select("source_record_id", "source_fingerprint").
+			Where("account_id = ? AND source_fingerprint IN ?", accountID, fingerprints).
+			Find(&existing).Error
+		if err != nil {
+			return fmt.Errorf("activity fingerprint lookup: %w", err)
+		}
+		for _, po := range existing {
+			identityByFingerprint[po.SourceFingerprint] = po.SourceRecordID
+		}
+	}
+
+	bySourceRecord := make(map[string]ActivityPO, len(items))
+	order := make([]string, 0, len(items))
+	for _, it := range items {
+		if prior, ok := identityByFingerprint[it.SourceFingerprint]; ok && it.SourceFingerprint != "" {
+			it.SourceRecordID = prior
+		} else if it.SourceFingerprint != "" {
+			identityByFingerprint[it.SourceFingerprint] = it.SourceRecordID
+		}
+		if _, ok := bySourceRecord[it.SourceRecordID]; !ok {
+			order = append(order, it.SourceRecordID)
+		}
+		bySourceRecord[it.SourceRecordID] = activityFromDomain(accountID, it)
+	}
+	pos := make([]ActivityPO, 0, len(bySourceRecord))
+	for _, sourceRecordID := range order {
+		pos = append(pos, bySourceRecord[sourceRecordID])
 	}
 	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "account_id"}, {Name: "source_record_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"price", "units", "amount", "type",
-			"trade_date", "settlement_date", "fee", "description",
-		}),
+		Columns:   []clause.Column{{Name: "account_id"}, {Name: "source_record_id"}},
+		DoUpdates: clause.AssignmentColumns(activityMutableColumns),
 	}).Create(&pos).Error
 	if err != nil {
 		return fmt.Errorf("activity upsert: %w", err)
 	}
 	return nil
+}
+
+var activityMutableColumns = []string{
+	"symbol_ticker", "symbol_raw", "symbol_description", "symbol_name",
+	"symbol_type_code", "symbol_type_desc", "symbol_type_supported",
+	"symbol_exchange_code", "symbol_exchange_mic", "symbol_exchange_name",
+	"symbol_exchange_suffix", "symbol_currency_code", "symbol_currency_name", "symbol_figi",
+	"currency_symbol_ticker", "currency_symbol_raw", "currency_symbol_description",
+	"currency_symbol_name", "currency_symbol_type_code", "currency_symbol_type_desc", "currency_symbol_supported",
+	"currency_symbol_exchange_code", "currency_symbol_exchange_mic", "currency_symbol_exchange_name",
+	"currency_symbol_exchange_suffix", "currency_symbol_currency_code", "currency_symbol_currency_name",
+	"currency_symbol_figi", "option_ticker", "option_side", "option_strike_price",
+	"option_expiration_date", "option_is_mini", "option_underlying", "option_underlying_raw",
+	"option_underlying_description", "option_underlying_type", "option_underlying_type_description",
+	"option_underlying_supported", "option_underlying_exchange", "option_underlying_mic",
+	"option_underlying_exchange_name", "option_underlying_exchange_suffix", "option_underlying_currency",
+	"option_underlying_currency_name", "option_underlying_figi",
+	"price", "units", "amount", "currency_code", "currency_name", "type", "subtype", "raw_type",
+	"option_type", "description", "trade_date", "settlement_date", "fee", "fx_rate", "institution",
+	"external_reference_id", "provider_type", "source_system", "source_group_id", "source_fingerprint",
+	"needs_review",
 }
 
 // ─── Holdings ─────────────────────────────────────────────────────────────

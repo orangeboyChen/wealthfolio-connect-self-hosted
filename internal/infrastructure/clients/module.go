@@ -10,32 +10,97 @@ import (
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 
-	appsync "github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/application/sync"
+	domainsync "github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/domain/sync"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/binance"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/bitget"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/futu"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/hyperliquid"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/ibkr"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/okx"
+	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/clients/snaptrade"
 	"github.com/wealthfolio/wealthfolio-connect-self-hosted/internal/infrastructure/config"
 )
 
 // Module registers every BrokerClient into the broker_clients fx group.
 //
-// Every constructor below is wrapped in appsync.AsBrokerClient so it lands
-// in the same fx group consumed by application/sync.Service. Constructors
-// always return a *Client so unit tests can also reach the concrete type.
+// Configured clients are contributed as a flattened group so disabled
+// integrations never enter the scheduler.
 var Module = fx.Module("infrastructure.clients",
 	fx.Provide(
-		appsync.AsBrokerClient(NewFutu),
-		appsync.AsBrokerClient(NewIBKR),
-		appsync.AsBrokerClient(NewBinance),
-		appsync.AsBrokerClient(NewOKXCEX),
-		appsync.AsBrokerClient(NewBitget),
-		appsync.AsBrokerClient(NewHyperliquid),
-		appsync.AsBrokerClient(NewOKXWeb3),
+		NewSnapTrade,
+		NewConfiguredClients,
 	),
 )
+
+// ConfiguredClientsOut contributes only integrations with complete opt-in
+// configuration to the shared broker client group.
+type ConfiguredClientsOut struct {
+	fx.Out
+	Clients []domainsync.BrokerClient `group:"broker_clients,flatten"`
+}
+
+// NewConfiguredClients constructs the enabled direct-broker and exchange
+// clients. Missing credentials disable an integration without noisy retries.
+func NewConfiguredClients(cfg *config.Config, log zerolog.Logger) ConfiguredClientsOut {
+	if cfg == nil {
+		return ConfiguredClientsOut{}
+	}
+	configured := make([]domainsync.BrokerClient, 0, 7)
+	if cfg.Futu.Enabled {
+		configured = append(configured, NewFutu(cfg, log))
+	}
+	if cfg.IBKR.Enabled {
+		configured = append(configured, NewIBKR(cfg))
+	}
+	if allConfigured(cfg.Crypto.BinanceAPIKey, cfg.Crypto.BinanceSecret) {
+		configured = append(configured, NewBinance(cfg))
+	}
+	if allConfigured(cfg.Crypto.OKXAPIKey, cfg.Crypto.OKXSecret, cfg.Crypto.OKXPassphrase) {
+		configured = append(configured, NewOKXCEX(cfg))
+	}
+	if allConfigured(cfg.Crypto.BitgetAPIKey, cfg.Crypto.BitgetSecret, cfg.Crypto.BitgetPassphrase) {
+		configured = append(configured, NewBitget(cfg))
+	}
+	if cfg.Crypto.HyperliquidWallet != "" {
+		configured = append(configured, NewHyperliquid(cfg))
+	}
+	if len(cfg.DefiWallets) > 0 && allConfigured(
+		cfg.Crypto.OKXWeb3APIKey,
+		cfg.Crypto.OKXWeb3Secret,
+		cfg.Crypto.OKXWeb3Passphrase,
+	) {
+		configured = append(configured, NewOKXWeb3(cfg, log))
+	}
+	return ConfiguredClientsOut{Clients: configured}
+}
+
+func allConfigured(values ...string) bool {
+	for _, value := range values {
+		if value == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// SnapTradeOut conditionally contributes the enabled SnapTrade client to the
+// shared broker_clients group. An empty slice cleanly disables the integration.
+type SnapTradeOut struct {
+	fx.Out
+	Clients []domainsync.BrokerClient `group:"broker_clients,flatten"`
+}
+
+// NewSnapTrade builds the optional SnapTrade client from validated config.
+func NewSnapTrade(cfg *config.Config, log zerolog.Logger) (SnapTradeOut, error) {
+	if cfg == nil || !cfg.SnapTrade.Enabled {
+		return SnapTradeOut{}, nil
+	}
+	client, err := snaptrade.New(cfg.SnapTrade, log.With().Str("client", "snaptrade").Logger(), nil)
+	if err != nil {
+		return SnapTradeOut{}, err
+	}
+	return SnapTradeOut{Clients: []domainsync.BrokerClient{client}}, nil
+}
 
 // NewFutu builds the Futu BrokerClient from config.
 func NewFutu(cfg *config.Config, log zerolog.Logger) *futu.Client {

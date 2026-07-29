@@ -76,6 +76,7 @@ type optionSymbolDTO struct {
 type activityDTO struct {
 	ID                  string           `json:"id"`
 	Symbol              *symbolDTO       `json:"symbol"`
+	CurrencySymbol      *symbolDTO       `json:"currency_universal_symbol,omitempty"`
 	OptionSymbol        *optionSymbolDTO `json:"option_symbol"`
 	Price               float64          `json:"price"`
 	Units               float64          `json:"units"`
@@ -164,6 +165,10 @@ func toActivityDTO(a brokerage.Activity) activityDTO {
 	if a.Symbol != nil {
 		s := toSymbolDTO(*a.Symbol)
 		dto.Symbol = &s
+	}
+	if a.CurrencySymbol != nil {
+		s := toSymbolDTO(*a.CurrencySymbol)
+		dto.CurrencySymbol = &s
 	}
 	if a.OptionSymbol != nil {
 		o := toOptionSymbolDTO(*a.OptionSymbol)
