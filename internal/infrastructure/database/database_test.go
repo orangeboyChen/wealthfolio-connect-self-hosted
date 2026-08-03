@@ -44,6 +44,18 @@ type stubMigrator struct{ models []any }
 
 func (s stubMigrator) Models() []any { return s.models }
 
+type stubDataMigrator struct {
+	called *bool
+	err    error
+}
+
+func (s stubDataMigrator) Models() []any { return nil }
+
+func (s stubDataMigrator) MigrateData(context.Context, *gorm.DB) error {
+	*s.called = true
+	return s.err
+}
+
 var _ = Describe("Readiness", func() {
 	It("starts not ready and toggles", func() {
 		r := database.NewReadiness()
@@ -70,6 +82,29 @@ var _ = Describe("Migrate", func() {
 		err := database.Migrate(context.Background(), db,
 			stubMigrator{models: []any{&dummyModel{}}}, nil)
 		Expect(err).To(MatchError(ContainSubstring("auto-migrate")))
+	})
+
+	It("runs optional idempotent data migrations before readiness", func() {
+		db, _, sqlDB := newMockGorm()
+		defer sqlDB.Close()
+		called := false
+		readiness := database.NewReadiness()
+		Expect(database.Migrate(context.Background(), db,
+			stubDataMigrator{called: &called}, readiness)).To(Succeed())
+		Expect(called).To(BeTrue())
+		Expect(readiness.Ready()).To(BeTrue())
+	})
+
+	It("surfaces optional data migration errors without marking readiness", func() {
+		db, _, sqlDB := newMockGorm()
+		defer sqlDB.Close()
+		called := false
+		readiness := database.NewReadiness()
+		err := database.Migrate(context.Background(), db,
+			stubDataMigrator{called: &called, err: errBoom}, readiness)
+		Expect(err).To(MatchError(ContainSubstring("data migration")))
+		Expect(called).To(BeTrue())
+		Expect(readiness.Ready()).To(BeFalse())
 	})
 })
 

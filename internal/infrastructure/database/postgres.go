@@ -127,6 +127,12 @@ type Migrator interface {
 	Models() []any
 }
 
+// DataMigrator optionally repairs persisted rows after the schema has been
+// converged. Implementations must be idempotent because they run at startup.
+type DataMigrator interface {
+	MigrateData(context.Context, *gorm.DB) error
+}
+
 // RunMigrations is the fx hook entry point that drives AutoMigrate at
 // startup.
 func RunMigrations(lc fx.Lifecycle, db *gorm.DB, m Migrator, ready *Readiness) {
@@ -141,14 +147,15 @@ func RunMigrations(lc fx.Lifecycle, db *gorm.DB, m Migrator, ready *Readiness) {
 // tests can drive it against an in-memory or mocked *gorm.DB.
 func Migrate(ctx context.Context, db *gorm.DB, m Migrator, ready *Readiness) error {
 	models := m.Models()
-	if len(models) == 0 {
-		if ready != nil {
-			ready.MarkReady()
+	if len(models) > 0 {
+		if err := db.WithContext(ctx).AutoMigrate(models...); err != nil {
+			return fmt.Errorf("database: auto-migrate: %w", err)
 		}
-		return nil
 	}
-	if err := db.WithContext(ctx).AutoMigrate(models...); err != nil {
-		return fmt.Errorf("database: auto-migrate: %w", err)
+	if dataMigrator, ok := m.(DataMigrator); ok {
+		if err := dataMigrator.MigrateData(ctx, db); err != nil {
+			return fmt.Errorf("database: data migration: %w", err)
+		}
 	}
 	if ready != nil {
 		ready.MarkReady()

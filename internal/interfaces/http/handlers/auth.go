@@ -218,8 +218,8 @@ func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout is a no-op stub. supabase-js calls POST /auth/v1/logout during
-// signOut; we have no server-side session state beyond the refresh token
-// store (which expires naturally) so we simply acknowledge the request.
+// signOut; signed refresh tokens expire naturally, so we simply acknowledge
+// the request.
 func (h *AuthHandler) Logout(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }

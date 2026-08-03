@@ -535,10 +535,10 @@ func ibSecTypeToCode(secType string) string {
 		return "OPTION"
 	case "FUT":
 		return "FUTURE"
-	case "CASH":
+	case ibkrAssetClassCash:
 		return "FOREX"
-	case "BOND":
-		return "BOND"
+	case ibkrAssetClassBond:
+		return ibkrAssetClassBond
 	default:
 		return "EQUITY"
 	}

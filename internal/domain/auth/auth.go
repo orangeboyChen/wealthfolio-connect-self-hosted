@@ -47,8 +47,8 @@ type Signer interface {
 }
 
 // RefreshTokens validates and issues refresh tokens. In static-token mode it
-// always returns the same value; in regular mode it should be backed by a
-// store with rotation semantics.
+// always returns the same value; regular implementations must keep tokens
+// valid across normal process restarts until their expiry.
 type RefreshTokens interface {
 	// Validate returns the subject the refresh token belongs to, or
 	// ErrInvalidRefreshToken if it is unknown/expired.

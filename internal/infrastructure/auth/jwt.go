@@ -4,9 +4,10 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -102,47 +103,37 @@ func (s *JWTSigner) Verify(_ context.Context, raw string) (domainauth.Claims, er
 
 // ─── Refresh tokens ──────────────────────────────────────────────────────
 
-// refreshTTL bounds how long an issued refresh token remains valid in
-// memory. Combined with maxRefreshTokens it gives a defense-in-depth cap on
-// memory growth even when a malicious caller floods /auth/v1/token.
-const (
-	refreshTTL       = 30 * 24 * time.Hour // 30 days
-	maxRefreshTokens = 10000
-)
+// refreshTTL bounds how long a signed refresh token remains valid.
+const refreshTTL = 30 * 24 * time.Hour
 
-type refreshEntry struct {
-	subject   string
-	expiresAt time.Time
-}
-
-// RefreshStore is an in-memory refresh-token registry with TTL eviction. It
-// is the simplest thing that satisfies domainauth.RefreshTokens for
-// self-hosted deployments without external session stores. In static-token
-// mode every refresh token is accepted and resolves to the same subject.
+// RefreshStore issues self-contained HS256 refresh tokens. Using the same
+// configured JWT secret makes sessions survive process and container
+// restarts without storing bearer credentials in plaintext. In static-token
+// mode every non-empty refresh token resolves to the same subject.
 type RefreshStore struct {
 	staticMode bool
 	subject    string
 	ttl        time.Duration
-	cap        int
+	secret     []byte
 	now        func() time.Time
-
-	mu     sync.RWMutex
-	tokens map[string]refreshEntry // token -> entry
 }
 
 // NewRefreshTokens constructs the refresh-token store.
 func NewRefreshTokens(cfg *config.Config) *RefreshStore {
+	refreshSecret := sha256.Sum256(append(
+		[]byte("wealthfolio-connect-refresh-v1\x00"),
+		[]byte(cfg.JWTSecret)...,
+	))
 	return &RefreshStore{
 		staticMode: cfg.StaticTokenMode,
 		subject:    "self-hosted-user",
 		ttl:        refreshTTL,
-		cap:        maxRefreshTokens,
+		secret:     refreshSecret[:],
 		now:        time.Now,
-		tokens:     map[string]refreshEntry{},
 	}
 }
 
-// Validate returns the subject the token belongs to or ErrInvalidRefreshToken.
+// Validate verifies the signed refresh token and returns its subject.
 func (s *RefreshStore) Validate(_ context.Context, token string) (string, error) {
 	if token == "" {
 		return "", domainauth.ErrInvalidRefreshToken
@@ -150,46 +141,46 @@ func (s *RefreshStore) Validate(_ context.Context, token string) (string, error)
 	if s.staticMode {
 		return s.subject, nil
 	}
-	s.mu.RLock()
-	entry, ok := s.tokens[token]
-	s.mu.RUnlock()
-	if !ok {
+	parsed, err := jwt.Parse(
+		token,
+		func(_ *jwt.Token) (any, error) { return s.secret, nil },
+		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithExpirationRequired(),
+		jwt.WithTimeFunc(s.now),
+	)
+	if err != nil || !parsed.Valid {
 		return "", domainauth.ErrInvalidRefreshToken
 	}
-	if !entry.expiresAt.IsZero() && s.now().After(entry.expiresAt) {
-		// Lazy eviction of expired entry.
-		s.mu.Lock()
-		delete(s.tokens, token)
-		s.mu.Unlock()
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok || claims["token_use"] != "refresh" {
 		return "", domainauth.ErrInvalidRefreshToken
 	}
-	return entry.subject, nil
+	subject, ok := claims["sub"].(string)
+	if !ok || strings.TrimSpace(subject) == "" {
+		return "", domainauth.ErrInvalidRefreshToken
+	}
+	return subject, nil
 }
 
-// Issue persists a refresh token bound to subject and returns its value. In
-// static-token mode it always returns the same fixed value.
+// Issue signs a refresh token bound to subject. In static-token mode it
+// always returns the same fixed value.
 func (s *RefreshStore) Issue(_ context.Context, subject string) (string, error) {
 	if s.staticMode {
 		return "static-refresh-token", nil
 	}
-	now := s.now()
-	tok := fmt.Sprintf("rt-%s-%d", subject, now.UnixNano())
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.evictExpiredLocked(now)
-	if s.cap > 0 && len(s.tokens) >= s.cap {
-		// Hard cap reached even after eviction: reject to avoid OOM.
-		return "", fmt.Errorf("auth: refresh token store at capacity")
+	if strings.TrimSpace(subject) == "" {
+		return "", errors.New("auth: refresh token subject is required")
 	}
-	s.tokens[tok] = refreshEntry{subject: subject, expiresAt: now.Add(s.ttl)}
-	return tok, nil
-}
-
-// evictExpiredLocked removes every expired entry. Caller must hold s.mu.
-func (s *RefreshStore) evictExpiredLocked(now time.Time) {
-	for k, v := range s.tokens {
-		if !v.expiresAt.IsZero() && now.After(v.expiresAt) {
-			delete(s.tokens, k)
-		}
+	now := s.now().UTC()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":       subject,
+		"iat":       now.Unix(),
+		"exp":       now.Add(s.ttl).Unix(),
+		"token_use": "refresh",
+	})
+	signed, err := token.SignedString(s.secret)
+	if err != nil {
+		return "", fmt.Errorf("auth: signing refresh token: %w", err)
 	}
+	return signed, nil
 }

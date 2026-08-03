@@ -83,6 +83,8 @@ var _ = Describe("ActivityHandler.List", func() {
 				Expect(f.Limit).To(Equal(50))
 				Expect(f.StartDate).NotTo(BeNil())
 				Expect(f.EndDate).NotTo(BeNil())
+				Expect(*f.StartDate).To(Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+				Expect(*f.EndDate).To(Equal(time.Date(2026, 12, 31, 23, 59, 59, int(time.Second-time.Nanosecond), time.UTC)))
 				return []brokerage.Activity{
 					{
 						ID:        "t1",
@@ -131,6 +133,24 @@ var _ = Describe("ActivityHandler.List", func() {
 		actRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, 0, errors.New("db"))
 		rec := doGet("/sync/brokerage/accounts/a/activities")
 		Expect(rec.Code).To(Equal(http.StatusInternalServerError))
+	})
+
+	It("normalizes provider-only activity types to Wealthfolio canonical types", func() {
+		accRepo.EXPECT().Get(gomock.Any(), "a").Return(brokerage.Account{ID: "a"}, nil)
+		actRepo.EXPECT().List(gomock.Any(), gomock.Any()).Return([]brokerage.Activity{
+			{ID: "option-buy", Type: brokerage.ActivityOptionBuy, TradeDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: "option-expiry", Type: brokerage.ActivityOptionExpiry, TradeDate: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+			{ID: "conversion", Type: brokerage.ActivityConversion, TradeDate: time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)},
+		}, 3, nil)
+
+		rec := doGet("/sync/brokerage/accounts/a/activities")
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		body := rec.Body.String()
+		Expect(body).To(ContainSubstring(`"id":"option-buy"`))
+		Expect(body).To(ContainSubstring(`"type":"BUY","subtype":"OPTION_BUY"`))
+		Expect(body).To(ContainSubstring(`"type":"ADJUSTMENT","subtype":"OPTION_EXPIRY"`))
+		Expect(body).To(ContainSubstring(`"type":"UNKNOWN","subtype":"CONVERSION"`))
+		Expect(body).To(ContainSubstring(`"needs_review":true`))
 	})
 })
 

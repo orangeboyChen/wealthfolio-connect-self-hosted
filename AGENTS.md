@@ -75,6 +75,11 @@ project as it evolves.
   `test:`, `docs:`, `chore:`, `ci:`.
 - PRs MUST pass CI (vet, lint, test ≥ 90% coverage) before merge.
 - Branch names: `feat/<topic>`, `fix/<topic>`, `chore/<topic>`.
+- AI agents MAY inspect the worktree and validate changes, but MUST NOT execute
+  `git add`, `git commit`, or `git push`, and MUST NOT create, update, or merge
+  pull requests. For publication workflows, the agent provides the exact Git
+  commands **one step at a time** and waits for the user to execute each command
+  and report its result before providing the next one.
 
 ## Forbidden Patterns
 
